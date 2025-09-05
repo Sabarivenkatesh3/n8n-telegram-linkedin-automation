@@ -1,0 +1,315 @@
+{
+  "name": "linkedin-url-posts",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.8"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        160,
+        -96
+      ],
+      "id": "67d11c1f-87fc-499a-a874-6c56c48fdc4a",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cheerio = require('cheerio');\n\nconst html = items[0].json.data || '';\nconst articleUrl = items[0].json.link || '';\n\nconst $ = cheerio.load(html);\n\n// 1. Extract title via og:title or page title\nconst title = $('meta[property=\"og:title\"]').attr('content') \n              || $('title').first().text()\n              || '';\n\n// 2. Extract article paragraphs (TechCrunch uses <article> or class=\"article-content\")\nconst selectors = [\n  'article p',\n  '.article-content p',\n  '.post-block__content',  // in some cases\n  'p'  // fallback\n];\n\nlet textParts = [];\nfor (const sel of selectors) {\n  $(sel).each((_, el) => {\n    const txt = $(el).text().trim();\n    if (txt.length > 60) {\n      textParts.push(txt);\n    }\n  });\n  if (textParts.length > 0) break;\n}\n\n// Join paragraphs into articleText\nconst articleText = textParts.join('\\n\\n');\n\n// 3. Extract image—prefer og:image then first meaningful <img>\nlet imageUrl = $('meta[property=\"og:image\"]').attr('content')\n              || $('img').first().attr('src') || '';\n\nif (imageUrl.startsWith('//')) {\n  imageUrl = 'https:' + imageUrl;\n}\n\n// 4. Truncate articleText if too long for LLM\nconst MAX_LEN = 5000;\nconst finalText = articleText.length > MAX_LEN ? articleText.slice(0, MAX_LEN) + '...' : articleText;\n\nreturn [{\n  json: {\n    title: title,\n    link: articleUrl,\n    articleText: finalText,\n    imageUrl: imageUrl,\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -96
+      ],
+      "id": "656cda97-4e3f-47a4-9aa4-04ec79e1edd0",
+      "name": "html to neatformat"
+    },
+    {
+      "parameters": {
+        "person": "HQ9n0JzNxB",
+        "text": "={{ $json.text }}",
+        "shareMediaCategory": "IMAGE",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        1456,
+        -96
+      ],
+      "id": "2c09a549-6bde-494c-ba26-a4c024391aa4",
+      "name": "Create a post",
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "<CLIENT_ID>",
+          "name": "LinkedIn account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const telegramMessage = items[0].json.message.text || '';\nconst url = telegramMessage;\n\nreturn [{\n  json: {\n    url: url\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        -96
+      ],
+      "id": "1ef1e567-f61c-49e4-bfc5-eafa99b954f3",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -224,
+        -96
+      ],
+      "id": "4ae77cc4-a66f-48f2-b18b-40d62ce2e12c",
+      "name": "Telegram Trigger",
+      "webhookId": "98ddb76c-3767-48a5-86fe-2e66dbf16ec8",
+      "credentials": {
+        "telegramApi": {
+          "id": "<YOUR_TELEGRAM_API_KEY>",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer <YOUR_GROQ_API_KEY>"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        816,
+        -96
+      ],
+      "id": "0a5682d0-f4f5-4688-b584-0ffee22aa0b2",
+      "name": "groq llm"
+    },
+    {
+      "parameters": {
+        "url": "={{ $('html to neatformat').item.json.imageUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1248,
+        -96
+      ],
+      "id": "76b37af9-37fa-4bbc-8c08-79250ff8b52c",
+      "name": "url to image"
+    },
+    {
+      "parameters": {
+        "chatId": "1667487263",
+        "text": "=✅ Your content was successfully posted on LinkedIn!  \n🔗 View it here: https://www.linkedin.com/feed/update/{{ $json.urn }}\n",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1664,
+        -96
+      ],
+      "id": "b099b05d-a5ba-4c69-924e-8133e007f2d1",
+      "name": "Send a text message",
+      "webhookId": "24d546a1-ff2b-432f-9929-4390e0d7fbdd",
+      "credentials": {
+        "telegramApi": {
+          "id": "<YOUR_TELEGRAM_API_KEY>",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Groq node output\nconst groqOutput = $json.choices[0].message.content || \"\";\n\n// Limit node output (tags + url)\n\nconst newsUrl = $('Code2').first().json.url || \"\";\n\n\n\n\n// Extract first line for title\nlet firstLine = groqOutput.split(\"\\n\")[0] || \"\";\nfirstLine = firstLine.replace(/\\*/g, \"\").trim();  \n\n// Avoid duplication → remove first line from content if it already exists\nlet contentWithoutTitle = groqOutput;\nif (contentWithoutTitle.startsWith(firstLine)) {\n  contentWithoutTitle = contentWithoutTitle.split(\"\\n\").slice(1).join(\"\\n\").trim();\n}\n\n// Final LinkedIn content\nconst finalPost = `\n🚀 ${firstLine}\n\n${contentWithoutTitle}\n\n🔗 Read more here: ${newsUrl}\n`;\n\n// Return clean JSON for LinkedIn Node\nreturn [\n  {\n    json: {\n      text: finalPost\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        -96
+      ],
+      "id": "7454e13f-801b-47aa-9bc3-0a684832a0a5",
+      "name": "attach referral link"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input from previous parser node\nconst articleText = $json[\"articleText\"] || \"\";\n\n// Limit node output (tags)\n//let tags = $('Limit').first().json.categories || [];  // Example: [\"climatechange\", \"innovation\", \"sustainability\"]\n\n// ✅ Normalize tags with \"#\"\n//tags = tags.map(tag => tag.startsWith(\"#\") ? tag : `#${tag}`);\n\n// Convert tags into a string for context\n//const tagsString = tags.join(\" \");\n\n// Build JSON body for Groq\nreturn [\n  {\n    json: {\n      model: \"llama-3.3-70b-versatile\",\n      messages: [\n        {\n          role: \"system\",\n          content: \"You are a professional LinkedIn content creator. Always write engaging LinkedIn posts with emojis, catchy hooks, and clear structure.\"\n        },\n        {\n  role: \"user\",\n  content: `Rewrite the following article into a LinkedIn-ready post with this format:\n- A new catchy title (5–10 words, not clickbait, but attention-grabbing)\n- Engaging intro with 1–2 sentences (with emojis)\n- Main content: 3–5 short paragraphs (simple, clear, engaging, add some emojis to highlight points)\n- A bulleted list of 3–5 key takeaways (with emojis for bullets)\n- A short conclusion with a call-to-action\n- At the end, include these hashtags\n\n⚠️ Important:\n- Do NOT copy the author’s voice.\n- Write only from **my perspective** (as someone sharing what I learned from the blog).\n- Avoid phrases like \"as the author said\" or naming any author.\n- Keep the output under 2800 characters (safe limit for LinkedIn is 3000).\n\nHere is the article:\n${articleText}`\n}\n\n\n      ],\n      temperature: 0.6,\n      max_tokens: 700\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -96
+      ],
+      "id": "cc3e46be-17c5-47ec-a01a-fa692ddca80f",
+      "name": "prompt node"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "html to neatformat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "html to neatformat": {
+      "main": [
+        [
+          {
+            "node": "prompt node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "groq llm": {
+      "main": [
+        [
+          {
+            "node": "attach referral link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "url to image": {
+      "main": [
+        [
+          {
+            "node": "Create a post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a post": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attach referral link": {
+      "main": [
+        [
+          {
+            "node": "url to image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prompt node": {
+      "main": [
+        [
+          {
+            "node": "groq llm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a83a7cd9-f989-4088-a46d-9afb0961f727",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e320bf29b695dface73f19ad2598f60249e4a3c2a662d81aad7c6e0c29b4dc32"
+  },
+  "id": "e2a02IRxYigkL4em",
+  "tags": []
+}
